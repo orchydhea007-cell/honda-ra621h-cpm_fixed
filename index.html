@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Honda RA621H — CPM + DAG + Kahn's Algorithm</title>
+  <meta name="description" content="Critical Path Method (CPM), DAG visualization, dan Kahn's Topological Sort untuk Honda RA621H F1 assembly. 103 komponen, 216 dependensi, Python via Pyodide." />
+  <link rel="stylesheet" href="css/style.css" />
+  <!-- Pyodide: menjalankan Python di browser via WebAssembly -->
+  <script src="https://cdn.jsdelivr.net/pyodide/v0.27.5/full/pyodide.js"></script>
+</head>
+<body>
+
+<!-- ════════════════════════════════════
+     LOADER OVERLAY
+════════════════════════════════════ -->
+<div id="py-loader">
+  <div class="py-loader-engine">● PYTHON ENGINE (Pyodide)</div>
+  <div id="py-loader-msg">Memuat…</div>
+  <div id="py-loader-sub">Kahn's Algorithm + CPM + pandas berjalan di WebAssembly</div>
+  <div class="py-loader-bar-wrap">
+    <div id="py-loader-bar"></div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════
+     HEADER
+════════════════════════════════════ -->
+<header>
+  <div class="hdr-left">
+    <div class="hdr-badge">F1 · 2021 WDC</div>
+    <div class="hdr-title">Honda <em>RA621H</em> — CPM &amp; Kahn's Algorithm</div>
+  </div>
+  <div class="hdr-right">
+    <div class="hdr-stat"><div class="v" id="hdr-nodes">—</div><div class="l">Nodes</div></div>
+    <div class="hdr-stat"><div class="v" id="hdr-edges">—</div><div class="l">Edges</div></div>
+    <div class="hdr-stat"><div class="v" id="hdr-waves">—</div><div class="l">Waves</div></div>
+    <div class="hdr-stat"><div class="v" id="hdr-steps">—</div><div class="l">Steps</div></div>
+  </div>
+</header>
+
+<!-- ════════════════════════════════════
+     NAV TABS
+════════════════════════════════════ -->
+<nav class="nav-tabs">
+  <button class="nav-tab active" data-tab="cpm">① CPM &amp; DAG</button>
+  <button class="nav-tab"        data-tab="stats">② Statistik Pandas</button>
+  <button class="nav-tab"        data-tab="kahn">③ Kahn's Algorithm</button>
+</nav>
+
+<!-- ════════════════════════════════════
+     SUMMARY CARDS (shared, always visible)
+════════════════════════════════════ -->
+<div class="summary-grid">
+  <div class="summary-card"><div class="s-value" id="card-nodes">—</div><div class="s-label">Total Nodes</div></div>
+  <div class="summary-card"><div class="s-value" id="card-edges">—</div><div class="s-label">Total Edges</div></div>
+  <div class="summary-card"><div class="s-value green" id="card-duration">—</div><div class="s-label">Project Duration</div></div>
+  <div class="summary-card"><div class="s-value" id="card-critical">—</div><div class="s-label">Critical Path Nodes</div></div>
+  <div class="summary-card"><div class="s-value amber" id="card-roots">—</div><div class="s-label">Root Nodes</div></div>
+  <div class="summary-card"><div class="s-value blue" id="card-leaves">—</div><div class="s-label">Leaf Nodes</div></div>
+  <div class="summary-card"><div class="s-value cyan" id="card-waves">—</div><div class="s-label">BFS Waves</div></div>
+  <div class="summary-card"><div class="s-value" id="card-subsystems">—</div><div class="s-label">Subsystems</div></div>
+</div>
+
+<!-- ════════════════════════════════════
+     SECTION 1: CPM & DAG
+════════════════════════════════════ -->
+<section id="sec-cpm" class="section active">
+  <div class="cpm-layout">
+
+    <!-- DAG Visualization Panel -->
+    <div class="dag-panel">
+      <div class="dag-header">
+        <h2>DAG — Directed Acyclic Graph · Honda RA621H</h2>
+        <div class="dag-controls">
+          <button class="btn" id="dag-zoom-in" title="Zoom In">＋</button>
+          <button class="btn" id="dag-zoom-out" title="Zoom Out">－</button>
+          <button class="btn" id="dag-fit" title="Fit to view">⊞ Fit</button>
+          <button class="btn" id="dag-reset" title="Reset">↺ Reset</button>
+        </div>
+      </div>
+
+      <div class="dag-container">
+        <svg id="dag-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 600" preserveAspectRatio="xMidYMid meet"></svg>
+      </div>
+
+      <div class="dag-legend">
+        <span style="font-family:var(--ff-m);font-size:0.58rem;color:var(--t3);margin-right:0.5rem;letter-spacing:0.1em">SUBSYSTEM:</span>
+        <div id="dag-legend-items" style="display:flex;flex-wrap:wrap;gap:0.5rem"></div>
+      </div>
+    </div>
+
+    <!-- CPM Side Panel -->
+    <div class="cpm-side">
+      <div class="panel-header">
+        <h3>CPM — Urutan Assembly</h3>
+        <div style="display:flex;gap:0.4rem;">
+          <button class="btn cpm-filter-btn active" id="cpm-filter-all" style="font-size:0.6rem;padding:3px 8px">Semua</button>
+          <button class="btn cpm-filter-btn"        id="cpm-filter-cp"  style="font-size:0.6rem;padding:3px 8px">★ CP saja</button>
+        </div>
+      </div>
+      <div class="cpm-list" id="cpm-list">
+        <!-- populated by JS -->
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ════════════════════════════════════
+     SECTION 2: STATISTIK PANDAS
+════════════════════════════════════ -->
+<section id="sec-stats" class="section">
+  <div class="stats-section">
+
+    <!-- Row 1: Float Distribution + Float by Subsystem -->
+    <div class="stats-row">
+
+      <div class="chart-card">
+        <div class="chart-card-header">
+          <h3>Distribusi Total Float</h3>
+          <span class="tag tag-red">pandas pd.cut()</span>
+        </div>
+        <div class="chart-card-body">
+          <p style="font-family:var(--ff-m);font-size:0.62rem;color:var(--t3);margin-bottom:1rem;line-height:1.5">
+            Float = LS − ES. Node dengan Float = 0 berada di <strong style="color:var(--red)">Critical Path</strong>. Semakin tinggi float, semakin fleksibel jadwalnya.
+          </p>
+          <div class="bar-chart" id="float-dist-chart"></div>
+        </div>
+      </div>
+
+      <div class="chart-card">
+        <div class="chart-card-header">
+          <h3>Rata-rata Float per Subsystem</h3>
+          <span class="tag tag-amber">pandas groupby()</span>
+        </div>
+        <div class="chart-card-body">
+          <p style="font-family:var(--ff-m);font-size:0.62rem;color:var(--t3);margin-bottom:1rem;line-height:1.5">
+            Subsystem dengan float rendah = bottleneck. ICE dan hybrid cenderung lebih kritis.
+          </p>
+          <div class="bar-chart" id="float-sub-chart"></div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Row 2: Critical Path Timeline -->
+    <div class="chart-card">
+      <div class="chart-card-header">
+        <h3>Critical Path Timeline — Gantt View</h3>
+        <span class="tag tag-green">CPM Forward + Backward Pass</span>
+      </div>
+      <div class="chart-card-body" style="max-height:380px;overflow-y:auto;">
+        <div style="display:flex;align-items:center;gap:1rem;margin-bottom:0.85rem;font-family:var(--ff-m);font-size:0.6rem;color:var(--t3)">
+          <span>Bar = durasi komponen</span>
+          <span>|</span>
+          <span>Posisi = ES (Earliest Start)</span>
+          <span>|</span>
+          <span>Warna merah = Critical Path (Float = 0)</span>
+        </div>
+        <div id="cp-timeline"></div>
+      </div>
+    </div>
+
+    <!-- Row 3: Subsystem Stats Table -->
+    <div class="chart-card">
+      <div class="chart-card-header">
+        <h3>Statistik per Subsystem</h3>
+        <span class="tag tag-blue">pandas groupby().agg()</span>
+      </div>
+      <div class="chart-card-body" style="overflow-x:auto;">
+        <table class="sub-table">
+          <thead>
+            <tr>
+              <th>Subsystem</th>
+              <th>Komponen</th>
+              <th>Total Durasi (hrs)</th>
+              <th>Mean Durasi (hrs)</th>
+              <th>★ Kritis</th>
+            </tr>
+          </thead>
+          <tbody id="subsys-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ════════════════════════════════════
+     SECTION 3: KAHN'S ALGORITHM
+════════════════════════════════════ -->
+<section id="sec-kahn" class="section">
+
+  <!-- Top bar: algo phase + controls -->
+  <div class="top-bar">
+    <div class="algo-steps-inline">
+      <div class="asi-step" id="asi-1"><div class="asi-num">1</div><div class="asi-label">Hitung in-degree</div></div>
+      <span class="asi-arrow">→</span>
+      <div class="asi-step" id="asi-2"><div class="asi-num">2</div><div class="asi-label">Mulai wave</div></div>
+      <span class="asi-arrow">→</span>
+      <div class="asi-step" id="asi-3"><div class="asi-num">3</div><div class="asi-label">Proses node</div></div>
+      <span class="asi-arrow">→</span>
+      <div class="asi-step" id="asi-4"><div class="asi-num">4</div><div class="asi-label">Selesai</div></div>
+    </div>
+    <div class="controls">
+      <button class="btn" id="btn-first" title="First (Home)">⏮</button>
+      <button class="btn" id="btn-prev"  title="Prev (←)">‹ Prev</button>
+      <button class="btn primary" id="btn-play" title="Play/Pause (Space)">▶ Play</button>
+      <button class="btn" id="btn-next"  title="Next (→)">Next ›</button>
+      <button class="btn" id="btn-last"  title="Last (End)">⏭</button>
+      <div class="speed-wrap">
+        <label>Speed: <span id="speed-label">mid</span></label>
+        <input type="range" id="speed-range" min="1" max="10" value="5" />
+      </div>
+    </div>
+  </div>
+
+  <!-- Main grid -->
+  <div class="kahn-page">
+
+    <!-- Left: Step Log + In-Degree Tracker -->
+    <div class="left-panel">
+      <div class="panel-header">
+        <h3>Step Log</h3>
+        <span class="step-counter" id="step-counter">— / —</span>
+      </div>
+      <div class="step-log" id="step-log"></div>
+      <div class="indegree-panel">
+        <div class="panel-header">
+          <h3>In-Degree Tracker</h3>
+          <span style="font-family:var(--ff-m);font-size:0.6rem;color:var(--t3)">
+            <span style="color:#22C55E">■</span> = 0 (ready)
+          </span>
+        </div>
+        <div class="indegree-grid" id="indegree-grid"></div>
+      </div>
+    </div>
+
+    <!-- Right: Wave Grid + Order Strip -->
+    <div class="right-panel">
+      <div class="order-strip">
+        <div class="panel-header">
+          <h3>Sorted Order — Output</h3>
+          <span style="font-family:var(--ff-m);font-size:0.6rem;color:var(--t3)">valid assembly sequence →</span>
+        </div>
+        <div class="order-nodes" id="order-nodes"></div>
+      </div>
+      <div class="result-banner" id="result-banner"></div>
+      <div class="wave-area" id="wave-area">
+        <div style="text-align:center;padding:3rem;font-family:var(--ff-m);font-size:0.75rem;color:var(--t3);letter-spacing:0.1em">
+          LOADING…
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ════════════════════════════════════
+     NODE DETAIL DRAWER
+════════════════════════════════════ -->
+<div class="node-drawer-backdrop" id="node-drawer-backdrop"></div>
+<div class="node-drawer" id="node-drawer">
+  <button class="nd-close" id="nd-close-btn">✕ Close</button>
+  <div>
+    <div class="nd-id-badge" id="nd-id">—</div>
+    <div class="nd-name"     id="nd-name">—</div>
+    <div class="nd-subsystem" id="nd-sub">—</div>
+    <span class="nd-cp-tag" id="nd-cp-tag" style="display:none">★ CRITICAL PATH</span>
+  </div>
+  <table class="nd-table">
+    <tr><td>Durasi</td>        <td id="nd-duration">—</td></tr>
+    <tr><td>Earliest Start</td><td id="nd-es">—</td></tr>
+    <tr><td>Earliest Finish</td><td id="nd-ef">—</td></tr>
+    <tr><td>Latest Start</td>  <td id="nd-ls">—</td></tr>
+    <tr><td>Latest Finish</td> <td id="nd-lf">—</td></tr>
+    <tr><td>Total Float</td>   <td id="nd-float">—</td></tr>
+    <tr><td>Material</td>      <td id="nd-material">—</td></tr>
+    <tr><td>Berat</td>         <td id="nd-weight">—</td></tr>
+    <tr><td>Prasyarat (deps)</td><td id="nd-deps" style="word-break:break-all">—</td></tr>
+    <tr><td>Successors</td>    <td id="nd-succs" style="word-break:break-all">—</td></tr>
+  </table>
+  <div>
+    <div style="font-family:var(--ff-m);font-size:0.6rem;color:var(--t3);margin-bottom:0.4rem;letter-spacing:0.08em;text-transform:uppercase">Catatan Teknis</div>
+    <div class="nd-notes" id="nd-notes">—</div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════
+     PSEUDOCODE OVERLAY (Kahn)
+════════════════════════════════════ -->
+<div class="pseudo-panel" id="pseudo-panel">
+  <div class="pseudo-header" id="pseudo-header">
+    <h4>Kahn's Algorithm — Pseudocode</h4>
+    <span class="pseudo-toggle">▲ collapse</span>
+  </div>
+  <div class="pseudo-body">
+    <div class="pseudo-line" data-line="1"><span class="pl-num">1</span><span class="pl-code"><span class="kw">function</span> <span class="fn">kahnSort</span>(graph):</span></div>
+    <div class="pseudo-line" data-line="2"><span class="pl-num">2</span><span class="pl-code">&nbsp;&nbsp;<span class="vr">degree</span> = <span class="fn">computeInDegree</span>(graph)</span></div>
+    <div class="pseudo-line" data-line="3"><span class="pl-num">3</span><span class="pl-code">&nbsp;&nbsp;<span class="vr">queue</span> = [n <span class="kw">for</span> n <span class="kw">in</span> nodes <span class="kw">if</span> degree[n]==<span class="nm">0</span>]</span></div>
+    <div class="pseudo-line" data-line="4"><span class="pl-num">4</span><span class="pl-code">&nbsp;&nbsp;<span class="vr">order</span>, <span class="vr">waves</span> = [], []</span></div>
+    <div class="pseudo-line" data-line="5"><span class="pl-num">5</span><span class="pl-code">&nbsp;&nbsp;<span class="cm">// O(V+E) total</span></span></div>
+    <div class="pseudo-line" data-line="6"><span class="pl-num">6</span><span class="pl-code">&nbsp;</span></div>
+    <div class="pseudo-line" data-line="7"><span class="pl-num">7</span><span class="pl-code">&nbsp;&nbsp;<span class="kw">while</span> queue <span class="kw">not</span> empty:</span></div>
+    <div class="pseudo-line" data-line="8"><span class="pl-num">8</span><span class="pl-code">&nbsp;&nbsp;&nbsp;&nbsp;<span class="vr">wave</span> = snapshot(queue)</span></div>
+    <div class="pseudo-line" data-line="9"><span class="pl-num">9</span><span class="pl-code">&nbsp;&nbsp;&nbsp;&nbsp;waves.append(wave) <span class="cm">// parallel batch</span></span></div>
+    <div class="pseudo-line" data-line="10"><span class="pl-num">10</span><span class="pl-code">&nbsp;&nbsp;&nbsp;&nbsp;<span class="kw">for</span> node <span class="kw">in</span> wave:</span></div>
+    <div class="pseudo-line" data-line="11"><span class="pl-num">11</span><span class="pl-code">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;order.append(node)</span></div>
+    <div class="pseudo-line" data-line="12"><span class="pl-num">12</span><span class="pl-code">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="kw">for</span> succ <span class="kw">in</span> adj[node]:</span></div>
+    <div class="pseudo-line" data-line="13"><span class="pl-num">13</span><span class="pl-code">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;degree[succ] -= <span class="nm">1</span></span></div>
+    <div class="pseudo-line" data-line="14"><span class="pl-num">14</span><span class="pl-code">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="kw">if</span> degree[succ]==<span class="nm">0</span>: queue.add(succ)</span></div>
+    <div class="pseudo-line" data-line="15"><span class="pl-num">15</span><span class="pl-code">&nbsp;</span></div>
+    <div class="pseudo-line" data-line="16"><span class="pl-num">16</span><span class="pl-code">&nbsp;&nbsp;<span class="kw">if</span> len(order) &lt; len(nodes):</span></div>
+    <div class="pseudo-line" data-line="17"><span class="pl-num">17</span><span class="pl-code">&nbsp;&nbsp;&nbsp;&nbsp;<span class="kw">raise</span> CycleDetectedError</span></div>
+    <div class="pseudo-line" data-line="18"><span class="pl-num">18</span><span class="pl-code">&nbsp;&nbsp;<span class="kw">return</span> order, waves</span></div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════
+     FOOTER
+════════════════════════════════════ -->
+<footer>
+  <p>Honda RA621H · CPM + DAG + Kahn's BFS · Python (Pyodide + pandas) · O(V+E) · Proyek SDA 2025</p>
+  <p>← → / Space (Kahn tab) · Klik node untuk detail CPM · Scroll/drag DAG</p>
+</footer>
+
+<script src="js/main.js"></script>
+</body>
+</html>

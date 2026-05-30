@@ -1,0 +1,22 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Python (local testing only)
+__pycache__/
+*.pyc
+*.pyo
+.env
+
+# Node (if used for local server)
+node_modules/
+.npm
+
+# Build artifacts
+dist/
